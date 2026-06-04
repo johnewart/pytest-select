@@ -39,6 +39,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Write JSON selection report to PATH",
     )
     group.addoption(
+        "--select-print",
+        action="store_true",
+        default=False,
+        help="Print selected test nodeids (one per line) and exit without running tests",
+    )
+    group.addoption(
         "--select-safety-margin",
         action="store",
         type=int,
@@ -65,6 +71,8 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "select_always: always include this test in diff-based selection",
     )
+    if config.getoption("--select-print") and not config.getoption("--select-from-diff"):
+        pytest.exit("--select-print requires --select-from-diff", returncode=2)
 
 
 def pytest_collection_modifyitems(
@@ -102,6 +110,9 @@ def pytest_collection_modifyitems(
         fallback_full_on_wide=not config.getoption("--no-select-fallback-full-on-wide"),
     )
 
+    if report.get("error"):
+        pytest.exit(f"pytest-select: {report['error']}", returncode=1)
+
     report_path = config.getoption("--select-report")
     if report_path:
         write_select_report(report_path, report)
@@ -112,6 +123,19 @@ def pytest_collection_modifyitems(
             always.add(item.nodeid)
 
     selected |= always
+
+    if config.getoption("--select-print"):
+        config._pytest_select_print_mode = True  # noqa: SLF001
+        for nodeid in sorted(selected):
+            print(nodeid)
+        tr = config.pluginmanager.get_plugin("terminalreporter")
+        if tr is not None:
+            tr.write_line(
+                f"pytest-select: would run {len(selected)} of {len(items)} collected tests"
+            )
+        items.clear()
+        return
+
     if not selected:
         return
 
@@ -119,3 +143,8 @@ def pytest_collection_modifyitems(
     deselected = [i for i in items if i.nodeid not in selected]
     config.hook.pytest_deselected(items=deselected)
     items[:] = keep
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    if getattr(session.config, "_pytest_select_print_mode", False):
+        session.exitstatus = 0
