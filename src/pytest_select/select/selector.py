@@ -83,6 +83,29 @@ def _fallback_high_impact(
     return extra
 
 
+def _nodeid_test_file(nodeid: str) -> str:
+    return nodeid.split("::")[0].replace("\\", "/")
+
+
+def _tests_in_scope(all_nodeids: set[str], scope_prefix: str) -> set[str]:
+    norm = scope_prefix.replace("\\", "/")
+    if not norm.endswith("/"):
+        norm += "/"
+    return {
+        nodeid
+        for nodeid in all_nodeids
+        if _nodeid_test_file(nodeid).startswith(norm)
+        or _nodeid_test_file(nodeid) == norm.rstrip("/")
+    }
+
+
+def _scoped_wide_blast_tests(all_nodeids: set[str], scopes: set[str]) -> set[str]:
+    selected: set[str] = set()
+    for scope in scopes:
+        selected |= _tests_in_scope(all_nodeids, scope)
+    return selected
+
+
 def select_tests(
     diff_ref: str,
     db_path: str | Path,
@@ -95,7 +118,7 @@ def select_tests(
 ) -> tuple[set[str], dict[str, Any]]:
     """
     Return (selected nodeids, report dict).
-    If wide_blast_radius and fallback_full_on_wide, return all tests.
+    Conftest/__init__ changes widen selection to all tests under that directory tree.
     """
     root = Path(root).resolve()
     db = IndexDatabase(db_path)
@@ -107,6 +130,7 @@ def select_tests(
         "changed_files": sorted(diff.changed_files),
         "changed_symbols": [list(x) for x in sorted(diff.changed_symbols)],
         "wide_blast_radius": diff.wide_blast_radius,
+        "wide_blast_scopes": sorted(diff.wide_blast_scopes),
         "safety_margin": safety_margin,
     }
 
@@ -119,24 +143,12 @@ def select_tests(
         diff.changed_files, max_depth=safety_margin
     )
 
-    if diff.wide_blast_radius and fallback_full_on_wide:
-        report["strategy"] = "full_suite_wide_blast"
-        report["affected_files"] = sorted(expansion_chains.keys())
-        report["expansion_chains"] = expansion_chains
-        report["selected_count"] = len(all_nodeids)
-        report["selected"] = sorted(all_nodeids)
-        if detailed:
-            report["selection_details"] = build_selection_details(
-                all_nodeids,
-                changed_files=diff.changed_files,
-                affected_files=set(expansion_chains.keys()),
-                expansion_chains=expansion_chains,
-                coverage_map=db.test_coverage_map(all_nodeids),
-                fallback_tests=set(),
-                select_always_tests=set(),
-            )
-        db.close()
-        return all_nodeids, report
+    wide_blast_tests: set[str] = set()
+    if diff.wide_blast_scopes and fallback_full_on_wide:
+        wide_blast_tests = _scoped_wide_blast_tests(
+            all_nodeids, diff.wide_blast_scopes
+        )
+        report["wide_blast_test_count"] = len(wide_blast_tests)
 
     affected = expand_affected_files(diff, db, safety_margin=safety_margin)
     report["affected_files"] = sorted(affected)
@@ -179,6 +191,7 @@ def select_tests(
     coverage_map = db.test_coverage_map(candidates)
     scores = db.test_scores(candidates)
     selected = _greedy_set_cover(affected, candidates, coverage_map, scores)
+    selected |= wide_blast_tests
 
     fallback_tests: set[str] = set()
     if fallback_percentile > 0:
@@ -188,11 +201,14 @@ def select_tests(
 
     for f in diff.changed_files:
         for nid in all_nodeids:
-            test_file = nid.split("::")[0].replace("\\", "/")
+            test_file = _nodeid_test_file(nid)
             if test_file == f or test_file.endswith("/" + f):
                 selected.add(nid)
 
-    report["strategy"] = "greedy_set_cover"
+    if wide_blast_tests:
+        report["strategy"] = "greedy_set_cover_with_scoped_blast"
+    else:
+        report["strategy"] = "greedy_set_cover"
     report["candidates_count"] = len(candidates)
     report["selected_count"] = len(selected)
     report["selected"] = sorted(selected)

@@ -78,21 +78,29 @@ def format_selection_details(report: dict[str, Any]) -> str:
     for path in changed:
         lines.append(f"  {path}")
 
-    if strategy in ("full_suite_wide_blast", "full_suite_no_candidates"):
+    if strategy == "full_suite_no_candidates":
         lines.append("")
-        if strategy == "full_suite_wide_blast":
-            lines.append(
-                "Expanded to full suite: conftest.py or tests/__init__.py changed "
-                "(wide blast radius)."
-            )
-        else:
-            lines.append(
-                "Expanded to full suite: no indexed tests mapped to affected files."
-            )
+        lines.append(
+            "Expanded to full suite: no indexed tests mapped to affected files."
+        )
         lines.append(
             f"Selected all {report.get('selected_count', 0)} indexed/collected tests."
         )
-        return "\n".join(lines)
+        return "\n".join(lines) + "\n"
+
+    scopes = report.get("wide_blast_scopes") or []
+    if scopes and strategy == "greedy_set_cover_with_scoped_blast":
+        lines.append("")
+        lines.append(
+            f"Scoped wide blast ({len(scopes)} conftest/__init__ path(s) changed):"
+        )
+        for scope in scopes:
+            count = report.get("wide_blast_test_count", "?")
+            lines.append(f"  {scope}*  (includes all tests under this tree)")
+        if report.get("wide_blast_test_count") is not None:
+            lines.append(
+                f"  → {report['wide_blast_test_count']} tests from scoped blast"
+            )
 
     lines.append("")
     lines.append(

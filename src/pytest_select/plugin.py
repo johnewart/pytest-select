@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
 
+from pytest_select.db.queries import IndexDatabase
 from pytest_select.index.builder import build_index_with_session
 from pytest_select.select.explain import format_selection_details
 from pytest_select.select.selector import (
@@ -17,6 +19,12 @@ from pytest_select.select.selector import (
 def _select_modes_active(config: pytest.Config) -> bool:
     return bool(
         config.getoption("--reindex") or config.getoption("--select-from-diff")
+    )
+
+
+def _select_preview_mode(config: pytest.Config) -> bool:
+    return bool(
+        config.getoption("--select-from-diff") and config.getoption("--select-print")
     )
 
 
@@ -34,6 +42,58 @@ class _CollectionErrorTracker:
     def pytest_collectreport(self, report: pytest.CollectReport) -> None:
         if report.failed and report.nodeid:
             self.errors.append(report.nodeid)
+
+
+def _run_selection(config: pytest.Config) -> tuple[set[str], dict, int]:
+    """Return (selected nodeids, report dict, indexed test count)."""
+    root = Path(config.rootpath)
+    diff_ref = config.getoption("--select-from-diff")
+    db_path = config.getoption("--index-db")
+    detailed = config.getoption("--select-print-detailed")
+    selected, report = select_tests(
+        diff_ref,
+        db_path,
+        root,
+        safety_margin=config.getoption("--select-safety-margin"),
+        fallback_percentile=config.getoption("--select-fallback-percentile"),
+        fallback_full_on_wide=not config.getoption("--no-select-fallback-full-on-wide"),
+        detailed=detailed,
+    )
+    db = IndexDatabase(db_path)
+    indexed_count = len(db.all_test_nodeids())
+    db.close()
+    return selected, report, indexed_count
+
+
+def _emit_select_preview(
+    config: pytest.Config,
+    selected: set[str],
+    report: dict,
+    *,
+    indexed_count: int | None = None,
+    collected_count: int | None = None,
+) -> None:
+    if report.get("error"):
+        pytest.exit(f"pytest-select: {report['error']}", returncode=1)
+
+    report_path = config.getoption("--select-report")
+    if report_path:
+        write_select_report(report_path, report)
+
+    detailed = config.getoption("--select-print-detailed")
+    if detailed:
+        sys.stdout.write(format_selection_details(report))
+    else:
+        for nodeid in sorted(selected):
+            print(nodeid)
+
+    total = collected_count if collected_count is not None else indexed_count
+    if total is not None:
+        print(
+            f"pytest-select: would run {len(selected)} of {total} "
+            f"{'collected' if collected_count is not None else 'indexed'} tests",
+            file=sys.stderr,
+        )
 
 
 def _warn_collection_errors(config: pytest.Config) -> None:
@@ -129,7 +189,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--no-select-fallback-full-on-wide",
         action="store_true",
         default=False,
-        help="Do not expand to full suite when conftest/__init__ under tests/ changed",
+        help="Do not expand to all tests under a changed conftest/__init__ tree",
     )
     group.addoption(
         "--select-fail-on-collection-errors",
@@ -160,14 +220,26 @@ def pytest_configure(config: pytest.Config) -> None:
             "--select-print-detailed requires --select-print",
             returncode=2,
         )
-    if _select_modes_active(config) and not config.getoption(
-        "--select-fail-on-collection-errors"
-    ):
+    needs_collection = _select_modes_active(config) and not _select_preview_mode(config)
+    if needs_collection and not config.getoption("--select-fail-on-collection-errors"):
         config.option.continue_on_collection_errors = True
         tracker = _CollectionErrorTracker()
         config.pluginmanager.register(
             tracker, name="pytest_select_collection_tracker"
         )
+
+
+def pytest_cmdline_main(config: pytest.Config) -> int | None:
+    """Run selection from the index only; skip collection for --select-print."""
+    if not _select_preview_mode(config):
+        return None
+    if config.getoption("--reindex") or config.getoption("--collectonly"):
+        return None
+    selected, report, indexed_count = _run_selection(config)
+    _emit_select_preview(
+        config, selected, report, indexed_count=indexed_count
+    )
+    return 0
 
 
 def pytest_collection_modifyitems(
@@ -196,20 +268,12 @@ def pytest_collection_modifyitems(
     if not diff_ref:
         return
 
+    if _select_preview_mode(config):
+        return
+
     _warn_collection_errors(config)
 
-    root = Path(config.rootpath)
-    db_path = config.getoption("--index-db")
-    detailed = config.getoption("--select-print-detailed")
-    selected, report = select_tests(
-        diff_ref,
-        db_path,
-        root,
-        safety_margin=config.getoption("--select-safety-margin"),
-        fallback_percentile=config.getoption("--select-fallback-percentile"),
-        fallback_full_on_wide=not config.getoption("--no-select-fallback-full-on-wide"),
-        detailed=detailed,
-    )
+    selected, report, indexed_count = _run_selection(config)
 
     if report.get("error"):
         pytest.exit(f"pytest-select: {report['error']}", returncode=1)
@@ -226,7 +290,9 @@ def pytest_collection_modifyitems(
     selected |= always
     _warn_uncollectable_selected(config, selected, items)
 
-    if detailed and report.get("selection_details") is not None:
+    if config.getoption("--select-print-detailed") and report.get(
+        "selection_details"
+    ) is not None:
         for nid in always:
             entry = report["selection_details"].setdefault(
                 nid,
@@ -239,16 +305,12 @@ def pytest_collection_modifyitems(
 
     if config.getoption("--select-print"):
         config._pytest_select_print_mode = True  # noqa: SLF001
-        if detailed:
-            print(format_selection_details(report), end="")
-        else:
-            for nodeid in sorted(selected):
-                print(nodeid)
-        tr = config.pluginmanager.get_plugin("terminalreporter")
-        if tr is not None:
-            tr.write_line(
-                f"pytest-select: would run {len(selected)} of {len(items)} collected tests"
-            )
+        _emit_select_preview(
+            config,
+            selected,
+            report,
+            collected_count=len(items),
+        )
         items.clear()
         return
 

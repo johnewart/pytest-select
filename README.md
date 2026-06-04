@@ -164,7 +164,7 @@ CI runs these checks on every pull request via [`.github/workflows/lint.yml`](.g
 
 1. **Index** — Parse Python ASTs, build import dependency graph, collect tests, compute per-test file reachability → SQLite.
 2. **Select** — Git diff → changed files → reverse importer expansion → greedy set cover using impact/cost scores.
-3. **Safety** — Over-approximate deps; widen on `conftest.py` / `__init__.py` changes; optional fallback sampling.
+3. **Safety** — Over-approximate deps; widen to all tests under a changed conftest/__init__ tree; optional fallback sampling.
 
 ## CLI options
 
@@ -178,7 +178,7 @@ CI runs these checks on every pull request via [`.github/workflows/lint.yml`](.g
 | `--select-report PATH` | Write JSON report of selection |
 | `--select-safety-margin N` | Reverse-dep expansion depth (default: 2) |
 | `--select-fallback-percentile P` | Include top P% impact tests as safety net (default: 0) |
-| `--select-fallback-full-on-wide` | Run full suite if conftest/init changed |
+| `--no-select-fallback-full-on-wide` | Do not expand to all tests under a changed conftest/__init__ tree |
 | `--select-fail-on-collection-errors` | Fail when test modules cannot be imported (default: skip them) |
 
 ### Optional dependency groups
@@ -186,6 +186,20 @@ CI runs these checks on every pull request via [`.github/workflows/lint.yml`](.g
 Projects that split heavy ML or service dependencies into optional groups (e.g. `dev` vs `ml`) often have test modules that cannot be imported in a lean CI environment. During `--reindex` and `--select-from-diff`, pytest-select **automatically enables** pytest's continue-on-collection-errors behavior: importable tests are indexed or selected, and modules that fail collection (missing `presidio_analyzer`, `spacy`, etc.) are skipped with a warning.
 
 Reindex on a machine **with** the optional group installed to include those tests in the index; selection on a machine **without** them still works for the rest of the suite. Use `--select-fail-on-collection-errors` to restore strict failure when any test module cannot be imported.
+
+### Preview without collecting the suite
+
+`--select-print` (with `--select-from-diff`) reads the SQLite index and git diff only — it **does not collect tests**. Preview completes in seconds even for very large suites:
+
+```bash
+pytest --select-from-diff=origin/main...HEAD \
+  --index-db=.pytest-select/index.sqlite \
+  --select-print --select-print-detailed
+```
+
+### Scoped conftest blast radius
+
+When a `conftest.py` or `tests/**/__init__.py` changes, pytest-select widens selection to **all tests under that directory tree** (e.g. `tests/fidesplus/conftest.py` → every test under `tests/fidesplus/`), not the entire repository. Other changed files in the diff are still handled via import-graph set cover. Pass `--no-select-fallback-full-on-wide` to disable even scoped widening.
 
 ## CI example
 

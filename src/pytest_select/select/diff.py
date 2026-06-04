@@ -15,7 +15,22 @@ class DiffResult:
     changed_symbols: set[tuple[str, str]] = field(
         default_factory=set
     )  # (file, qualname)
-    wide_blast_radius: bool = False  # conftest / __init__ under tests
+    wide_blast_scopes: set[str] = field(default_factory=set)  # test dir prefixes
+
+    @property
+    def wide_blast_radius(self) -> bool:
+        """True when any conftest/__init__ under tests/ changed."""
+        return bool(self.wide_blast_scopes)
+
+
+def _wide_blast_scope(path: str) -> str | None:
+    """Directory prefix (with trailing slash) whose tests should all run."""
+    if not (
+        ("conftest.py" in path or path.endswith("__init__.py"))
+        and (path.startswith("tests/") or "/tests/" in path)
+    ):
+        return None
+    return f"{Path(path).parent.as_posix()}/"
 
 
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
@@ -48,10 +63,9 @@ def parse_git_diff(diff_ref: str, root: Path) -> DiffResult:
             continue
         posix = Path(name).as_posix()
         out.changed_files.add(posix)
-        if ("conftest.py" in posix or posix.endswith("__init__.py")) and (
-            posix.startswith("tests/") or "/tests/" in posix
-        ):
-            out.wide_blast_radius = True
+        scope = _wide_blast_scope(posix)
+        if scope:
+            out.wide_blast_scopes.add(scope)
 
     # Line-level hunks for symbol mapping
     patch = _run_git(["diff", "-U0", diff_ref], root)
