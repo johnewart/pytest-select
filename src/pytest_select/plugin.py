@@ -14,6 +14,63 @@ from pytest_select.select.selector import (
 )
 
 
+def _select_modes_active(config: pytest.Config) -> bool:
+    return bool(
+        config.getoption("--reindex") or config.getoption("--select-from-diff")
+    )
+
+
+def _collection_errors(config: pytest.Config) -> list[str]:
+    tracker = config.pluginmanager.get_plugin("pytest_select_collection_tracker")
+    if tracker is None:
+        return getattr(config, "_pytest_select_collection_errors", [])
+    return tracker.errors
+
+
+class _CollectionErrorTracker:
+    def __init__(self) -> None:
+        self.errors: list[str] = []
+
+    def pytest_collectreport(self, report: pytest.CollectReport) -> None:
+        if report.failed and report.nodeid:
+            self.errors.append(report.nodeid)
+
+
+def _warn_collection_errors(config: pytest.Config) -> None:
+    errors = _collection_errors(config)
+    if not errors:
+        return
+    tr = config.pluginmanager.get_plugin("terminalreporter")
+    if tr is None:
+        return
+    samples = ", ".join(errors[:3])
+    extra = f" (+{len(errors) - 3} more)" if len(errors) > 3 else ""
+    tr.write_line(
+        f"pytest-select: skipped {len(errors)} module(s) with collection errors "
+        f"(optional deps?) e.g. {samples}{extra}",
+        yellow=True,
+    )
+
+
+def _warn_uncollectable_selected(
+    config: pytest.Config, selected: set[str], items: list[pytest.Item]
+) -> None:
+    collected = {item.nodeid for item in items}
+    missing = selected - collected
+    if not missing:
+        return
+    tr = config.pluginmanager.get_plugin("terminalreporter")
+    if tr is None:
+        return
+    samples = ", ".join(sorted(missing)[:3])
+    extra = f" (+{len(missing) - 3} more)" if len(missing) > 3 else ""
+    tr.write_line(
+        f"pytest-select: {len(missing)} selected test(s) could not be collected "
+        f"(missing optional deps?) e.g. {samples}{extra}",
+        yellow=True,
+    )
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("select", "pytest-select: diff-based test selection")
     group.addoption(
@@ -74,6 +131,16 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Do not expand to full suite when conftest/__init__ under tests/ changed",
     )
+    group.addoption(
+        "--select-fail-on-collection-errors",
+        action="store_true",
+        default=False,
+        help=(
+            "Fail when test modules cannot be imported during collection "
+            "(default: continue and skip unimportable modules during --reindex / "
+            "--select-from-diff)"
+        ),
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -81,6 +148,7 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "select_always: always include this test in diff-based selection",
     )
+    config._pytest_select_collection_errors = []  # noqa: SLF001
     if config.getoption("--select-print-detailed") and not config.getoption(
         "--select-from-diff"
     ):
@@ -92,6 +160,14 @@ def pytest_configure(config: pytest.Config) -> None:
             "--select-print-detailed requires --select-print",
             returncode=2,
         )
+    if _select_modes_active(config) and not config.getoption(
+        "--select-fail-on-collection-errors"
+    ):
+        config.option.continue_on_collection_errors = True
+        tracker = _CollectionErrorTracker()
+        config.pluginmanager.register(
+            tracker, name="pytest_select_collection_tracker"
+        )
 
 
 def pytest_collection_modifyitems(
@@ -101,6 +177,7 @@ def pytest_collection_modifyitems(
         root = Path(config.rootpath)
         db_path = config.getoption("--index-db")
         db, stats = build_index_with_session(root, db_path, items)
+        stats.collection_errors = list(_collection_errors(config))
         db.close()
         tr = config.pluginmanager.get_plugin("terminalreporter")
         message = stats.format_message()
@@ -109,6 +186,7 @@ def pytest_collection_modifyitems(
                 tr.write_line(message, red=True, bold=True)
             else:
                 tr.write_line(message)
+        config._pytest_select_reindex_mode = True  # noqa: SLF001
         if stats.mapped == 0 and stats.collected > 0:
             pytest.exit(message, returncode=1)
         items.clear()
@@ -117,6 +195,8 @@ def pytest_collection_modifyitems(
     diff_ref = config.getoption("--select-from-diff")
     if not diff_ref:
         return
+
+    _warn_collection_errors(config)
 
     root = Path(config.rootpath)
     db_path = config.getoption("--index-db")
@@ -144,6 +224,7 @@ def pytest_collection_modifyitems(
             always.add(item.nodeid)
 
     selected |= always
+    _warn_uncollectable_selected(config, selected, items)
 
     if detailed and report.get("selection_details") is not None:
         for nid in always:
@@ -181,5 +262,9 @@ def pytest_collection_modifyitems(
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    if getattr(session.config, "_pytest_select_print_mode", False):
+    config = session.config
+    if getattr(config, "_pytest_select_print_mode", False):
+        session.exitstatus = 0
+        return
+    if getattr(config, "_pytest_select_reindex_mode", False):
         session.exitstatus = 0

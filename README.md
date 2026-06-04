@@ -179,6 +179,13 @@ CI runs these checks on every pull request via [`.github/workflows/lint.yml`](.g
 | `--select-safety-margin N` | Reverse-dep expansion depth (default: 2) |
 | `--select-fallback-percentile P` | Include top P% impact tests as safety net (default: 0) |
 | `--select-fallback-full-on-wide` | Run full suite if conftest/init changed |
+| `--select-fail-on-collection-errors` | Fail when test modules cannot be imported (default: skip them) |
+
+### Optional dependency groups
+
+Projects that split heavy ML or service dependencies into optional groups (e.g. `dev` vs `ml`) often have test modules that cannot be imported in a lean CI environment. During `--reindex` and `--select-from-diff`, pytest-select **automatically enables** pytest's continue-on-collection-errors behavior: importable tests are indexed or selected, and modules that fail collection (missing `presidio_analyzer`, `spacy`, etc.) are skipped with a warning.
+
+Reindex on a machine **with** the optional group installed to include those tests in the index; selection on a machine **without** them still works for the rest of the suite. Use `--select-fail-on-collection-errors` to restore strict failure when any test module cannot be imported.
 
 ## CI example
 

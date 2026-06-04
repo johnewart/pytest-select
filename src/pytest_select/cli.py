@@ -25,7 +25,7 @@ def index_main(argv: list[str] | None = None) -> int:
     # Run collection via pytest API
     config = pytest.Config.fromdictargs(
         {"testpaths": [str(root)]},
-        ["--collect-only", "-q", str(root)],
+        ["--collect-only", "-q", "--continue-on-collection-errors", str(root)],
     )
     config.rootpath = root
     config.invocation_params.dir = str(root)

@@ -16,10 +16,22 @@ class IndexBuildStats:
     collected: int = 0
     mapped: int = 0
     unmapped_samples: list[str] = field(default_factory=list)
+    collection_errors: list[str] = field(default_factory=list)
 
     def format_message(self) -> str:
+        err_suffix = ""
+        if self.collection_errors:
+            samples = ", ".join(self.collection_errors[:3])
+            extra = f" (+{len(self.collection_errors) - 3} more)" if len(
+                self.collection_errors
+            ) > 3 else ""
+            err_suffix = (
+                f"; skipped {len(self.collection_errors)} module(s) with collection "
+                f"errors (optional deps?) e.g. {samples}{extra}"
+            )
         if self.collected == 0:
-            return "pytest-select: indexed 0 tests (pytest collection returned no items)"
+            base = "pytest-select: indexed 0 tests (pytest collection returned no items)"
+            return base + err_suffix if self.collection_errors else base
         if self.mapped == 0:
             samples = ", ".join(self.unmapped_samples[:3])
             suffix = f" e.g. {samples}" if samples else ""
@@ -27,13 +39,14 @@ class IndexBuildStats:
                 "pytest-select: indexed 0 tests "
                 f"({self.collected} collected but none mapped to project paths{suffix}). "
                 "Check that --root / pytest rootdir matches your test tree."
+                f"{err_suffix}"
             )
         if self.mapped < self.collected:
             return (
                 f"pytest-select: indexed {self.mapped}/{self.collected} tests "
-                f"({self.collected - self.mapped} unmapped)"
+                f"({self.collected - self.mapped} unmapped){err_suffix}"
             )
-        return f"pytest-select: indexed {self.mapped} tests"
+        return f"pytest-select: indexed {self.mapped} tests{err_suffix}"
 
 
 class IndexDatabase:
