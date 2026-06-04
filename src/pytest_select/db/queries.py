@@ -111,7 +111,7 @@ class IndexDatabase:
     ) -> None:
         self._conn.execute(
             "INSERT OR REPLACE INTO tests (nodeid, file_path, name, markers) VALUES (?, ?, ?, ?)",
-            (nodeid, file_path, name, json.dumps(markers or {})),
+            (nodeid, file_path, name, json.dumps(markers or {}, default=str)),
         )
 
     def clear_tests(self) -> None:

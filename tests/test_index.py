@@ -112,3 +112,26 @@ def test_index_tests_does_not_clear_when_nothing_maps(tmp_path):
     assert stats.mapped == 0
     assert len(db.all_test_nodeids()) == before
     db.close()
+
+
+def test_insert_test_serializes_non_json_marker_args(tmp_path):
+    db_path = tmp_path / "index.sqlite"
+    db = IndexDatabase(db_path)
+    db.init_schema()
+
+    class CustomType:
+        def __repr__(self) -> str:
+            return "CustomType()"
+
+    db.insert_test(
+        "tests/test_x.py::test_a",
+        "tests/test_x.py",
+        "test_a",
+        {"custom": [(CustomType(),)]},
+    )
+    row = db._conn.execute(
+        "SELECT markers FROM tests WHERE nodeid = ?", ("tests/test_x.py::test_a",)
+    ).fetchone()
+    assert row is not None
+    assert "CustomType()" in row["markers"]
+    db.close()
