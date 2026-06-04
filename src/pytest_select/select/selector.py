@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from pytest_select.db.queries import IndexDatabase
-from pytest_select.select.diff import DiffResult, expand_affected_files, parse_git_diff
+from pytest_select.select.diff import expand_affected_files, parse_git_diff
 
 
 def _greedy_set_cover(
@@ -126,7 +126,12 @@ def select_tests(
         for f in diff.changed_files:
             if f.startswith("tests/"):
                 for nid in all_nodeids:
-                    if nid.split("::")[0].replace("\\", "/").endswith(f.replace(".py", "").replace("/", "/") + ".py") or f in nid:
+                    if (
+                        nid.split("::")[0]
+                        .replace("\\", "/")
+                        .endswith(f.replace(".py", "").replace("/", "/") + ".py")
+                        or f in nid
+                    ):
                         candidates.add(nid)
         if not candidates:
             report["strategy"] = "full_suite_no_candidates"

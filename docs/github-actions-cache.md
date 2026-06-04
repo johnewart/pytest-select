@@ -2,6 +2,24 @@
 
 pytest-select stores its SQLite index in Actions cache using **the full commit SHA** as part of the key. On a new commit, a small Python helper walks **git ancestry** and picks the **nearest commit** that already has a cache entry, restores that index, then runs **`pytest --reindex`** (incremental: only changed `.py` files are re-parsed).
 
+## Installing pytest-select in CI
+
+The package is not on PyPI yet. In workflow steps and the reusable workflow's `install-command` input, install from GitHub:
+
+```yaml
+install-command: >-
+  pip install pytest
+  "pytest-select @ git+https://github.com/johnewart/pytest-select.git@main"
+```
+
+Pin to a tag or commit for reproducible builds:
+
+```yaml
+install-command: pip install pytest "pytest-select @ git+https://github.com/johnewart/pytest-select.git@v0.1.0"
+```
+
+See [README — Installation](../README.md#installation) for `pyproject.toml`, uv, and Poetry examples.
+
 ## Cache keys
 
 | Artifact | Path | Cache key |
@@ -46,16 +64,18 @@ This repository ships:
 
 `.github/workflows/reusable-pytest-select-index.yml`
 
-**Consumer:**
+**Consumer** (install from GitHub — adjust `rev` / tag as needed):
 
 ```yaml
 jobs:
   index:
-    uses: your-org/your-repo/.github/workflows/reusable-pytest-select-index.yml@main
+    uses: johnewart/pytest-select/.github/workflows/reusable-pytest-select-index.yml@main
     with:
       python-version: "3.12"
       base-ref: ${{ github.event.pull_request.base.sha || '' }}
-      install-command: pip install pytest pytest-select
+      install-command: >-
+        pip install pytest
+        "pytest-select @ git+https://github.com/johnewart/pytest-select.git@main"
     secrets: inherit
 
   test-pr:
@@ -68,7 +88,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install pytest pytest-select
+      - run: >-
+          pip install pytest
+          "pytest-select @ git+https://github.com/johnewart/pytest-select.git@main"
       - uses: actions/cache/restore@v4
         with:
           path: .pytest-select

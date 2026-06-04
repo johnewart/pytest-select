@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 _SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
@@ -33,7 +33,15 @@ class IndexDatabase:
         self._conn.commit()
 
     def clear_all(self) -> None:
-        for table in ("test_scores", "test_coverage", "tests", "deps", "symbols", "files", "test_runs"):
+        for table in (
+            "test_scores",
+            "test_coverage",
+            "tests",
+            "deps",
+            "symbols",
+            "files",
+            "test_runs",
+        ):
             self._conn.execute(f"DELETE FROM {table}")
         self._conn.commit()
 
@@ -45,7 +53,9 @@ class IndexDatabase:
         )
 
     def get_file_sha(self, path: str) -> str | None:
-        row = self._conn.execute("SELECT sha256 FROM files WHERE path = ?", (path,)).fetchone()
+        row = self._conn.execute(
+            "SELECT sha256 FROM files WHERE path = ?", (path,)
+        ).fetchone()
         return row["sha256"] if row else None
 
     def insert_dep(
@@ -66,7 +76,9 @@ class IndexDatabase:
     def clear_deps_for_file(self, source_file: str) -> None:
         self._conn.execute("DELETE FROM deps WHERE source_file = ?", (source_file,))
 
-    def insert_test(self, nodeid: str, file_path: str, name: str, markers: dict | None = None) -> None:
+    def insert_test(
+        self, nodeid: str, file_path: str, name: str, markers: dict | None = None
+    ) -> None:
         self._conn.execute(
             "INSERT OR REPLACE INTO tests (nodeid, file_path, name, markers) VALUES (?, ?, ?, ?)",
             (nodeid, file_path, name, json.dumps(markers or {})),
@@ -78,7 +90,11 @@ class IndexDatabase:
         self._conn.execute("DELETE FROM tests")
 
     def insert_test_coverage(
-        self, test_nodeid: str, file_path: str, symbol_qualname: str = "", depth: int = 0
+        self,
+        test_nodeid: str,
+        file_path: str,
+        symbol_qualname: str = "",
+        depth: int = 0,
     ) -> None:
         self._conn.execute(
             "INSERT OR REPLACE INTO test_coverage (test_nodeid, file_path, symbol_qualname, depth) "
@@ -115,9 +131,13 @@ class IndexDatabase:
         ).fetchall()
         return {r["test_nodeid"] for r in rows}
 
-    def test_coverage_map(self, nodeids: Iterable[str] | None = None) -> dict[str, set[str]]:
+    def test_coverage_map(
+        self, nodeids: Iterable[str] | None = None
+    ) -> dict[str, set[str]]:
         if nodeids is None:
-            rows = self._conn.execute("SELECT test_nodeid, file_path FROM test_coverage").fetchall()
+            rows = self._conn.execute(
+                "SELECT test_nodeid, file_path FROM test_coverage"
+            ).fetchall()
         else:
             ids = list(nodeids)
             if not ids:
@@ -132,7 +152,9 @@ class IndexDatabase:
             result.setdefault(r["test_nodeid"], set()).add(r["file_path"])
         return result
 
-    def test_scores(self, nodeids: Iterable[str] | None = None) -> dict[str, tuple[float, float]]:
+    def test_scores(
+        self, nodeids: Iterable[str] | None = None
+    ) -> dict[str, tuple[float, float]]:
         if nodeids is None:
             rows = self._conn.execute(
                 "SELECT test_nodeid, impact, cost FROM test_scores"
@@ -148,7 +170,9 @@ class IndexDatabase:
             ).fetchall()
         return {r["test_nodeid"]: (r["impact"], r["cost"]) for r in rows}
 
-    def reverse_importers(self, target_files: Iterable[str], max_depth: int = 2) -> set[str]:
+    def reverse_importers(
+        self, target_files: Iterable[str], max_depth: int = 2
+    ) -> set[str]:
         """BFS reverse walk: files that import (depend on) target_files."""
         frontier = set(target_files)
         seen = set(frontier)

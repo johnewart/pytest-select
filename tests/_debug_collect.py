@@ -5,7 +5,9 @@ import pytest as pt
 
 root = Path(__file__).parent / "fixtures" / "sample_project"
 os.chdir(root)
-config = pt.Config.fromdictargs({"pythonpath": ["."]}, ["--collect-only", "-q", "tests"])
+config = pt.Config.fromdictargs(
+    {"pythonpath": ["."]}, ["--collect-only", "-q", "tests"]
+)
 session = pt.Session.from_config(config)
 session.perform_collect()
 print("count", len(session.items))

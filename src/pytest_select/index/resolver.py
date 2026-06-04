@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import sys
 from pathlib import Path
 
@@ -15,7 +14,11 @@ class ImportResolver:
         self._search_roots = [self.root]
         if extra_paths:
             self._search_roots.extend(p.resolve() for p in extra_paths)
-        self._stdlib = set(sys.stdlib_module_names) if hasattr(sys, "stdlib_module_names") else set()
+        self._stdlib = (
+            set(sys.stdlib_module_names)
+            if hasattr(sys, "stdlib_module_names")
+            else set()
+        )
 
     def is_external(self, module: str | None) -> bool:
         if not module:
@@ -23,7 +26,9 @@ class ImportResolver:
         top = module.split(".")[0]
         return top in self._stdlib or top in ("pytest", "_pytest")
 
-    def resolve_module(self, module: str, level: int = 0, relative_to: Path | None = None) -> str | None:
+    def resolve_module(
+        self, module: str, level: int = 0, relative_to: Path | None = None
+    ) -> str | None:
         """
         Return project-relative path (posix) for module, or None if external/unresolved.
         level > 0 is relative import from relative_to's package.

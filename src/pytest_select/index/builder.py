@@ -48,7 +48,17 @@ def _file_hash(path: Path) -> str:
 
 
 def _iter_py_files(root: Path, ignore_dirs: set[str] | None = None) -> list[Path]:
-    ignore = ignore_dirs or {".git", ".venv", "venv", "__pycache__", ".pytest-select", "node_modules", ".tox", "dist", "build"}
+    ignore = ignore_dirs or {
+        ".git",
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".pytest-select",
+        "node_modules",
+        ".tox",
+        "dist",
+        "build",
+    }
     result: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in ignore]
@@ -116,7 +126,6 @@ def index_tests_from_items(db: IndexDatabase, root: Path, items: list) -> None:
     """Record collected tests and compute forward import closure per test file."""
     db.clear_tests()
     root = root.resolve()
-    resolver = ImportResolver(root)
     neighbor_fn = build_forward_neighbor_fn(db._conn)
 
     # Group items by test file
@@ -130,7 +139,7 @@ def index_tests_from_items(db: IndexDatabase, root: Path, items: list) -> None:
     file_costs: dict[str, float] = {}
     file_reach: dict[str, dict[str, int]] = {}
 
-    for test_file, file_items in by_file.items():
+    for test_file, _file_items in by_file.items():
         path = root / test_file
         if path.is_file():
             try:
@@ -150,7 +159,7 @@ def index_tests_from_items(db: IndexDatabase, root: Path, items: list) -> None:
         rel = _rel_test_path(item, root)
         if not rel:
             continue
-        name = getattr(item, "name", nodeid.split("::")[-1])
+        name = str(getattr(item, "name", nodeid.split("::")[-1]))
         markers = {}
         try:
             for m in item.iter_markers():
@@ -177,7 +186,9 @@ def index_tests_from_items(db: IndexDatabase, root: Path, items: list) -> None:
     db.commit()
 
 
-def build_index_with_session(root: Path, db_path: str | Path, items: list) -> IndexDatabase:
+def build_index_with_session(
+    root: Path, db_path: str | Path, items: list
+) -> IndexDatabase:
     """Reindex sources + tests when items are already collected."""
     root = Path(root).resolve()
     db = IndexDatabase(db_path)

@@ -2,11 +2,129 @@
 
 AST-indexed, SQLite-backed pytest test selection for merge-request CI and merge queues.
 
-## Quick start
+## Installation
+
+pytest-select is not published to PyPI yet. Install from GitHub until a release is available.
+
+### pip
+
+```bash
+# Latest from main
+pip install "pytest-select @ git+https://github.com/johnewart/pytest-select.git@main"
+
+# Pin to a tag or commit
+pip install "pytest-select @ git+https://github.com/johnewart/pytest-select.git@v0.1.0"
+pip install "pytest-select @ git+https://github.com/johnewart/pytest-select.git@abc1234"
+```
+
+For local development in a clone of this repo:
 
 ```bash
 pip install -e ".[dev]"
+```
 
+### pyproject.toml
+
+Add a [PEP 508 direct reference](https://packaging.python.org/en/latest/specifications/version-specifiers/#direct-references) under `[project]` dependencies:
+
+```toml
+[project]
+dependencies = [
+    "pytest>=7.0",
+    "pytest-select @ git+https://github.com/johnewart/pytest-select.git@main",
+]
+```
+
+Pin to a tag or commit instead of a branch when you want reproducible CI:
+
+```toml
+"pytest-select @ git+https://github.com/johnewart/pytest-select.git@v0.1.0"
+```
+
+**uv** — optional `[tool.uv.sources]` (works alongside the dependency line above):
+
+```toml
+[tool.uv.sources]
+pytest-select = { git = "https://github.com/johnewart/pytest-select.git", rev = "main" }
+```
+
+**Poetry**:
+
+```toml
+[tool.poetry.dependencies]
+pytest-select = { git = "https://github.com/johnewart/pytest-select.git", rev = "main" }
+```
+
+**pip-tools** (`requirements.in`):
+
+```text
+pytest-select @ git+https://github.com/johnewart/pytest-select.git@main
+```
+
+Then run `pip-compile` / `uv pip compile` as usual.
+
+### GitHub Actions
+
+Reference the **reusable index workflow** from this repository and pass an `install-command` that pulls the package from GitHub:
+
+```yaml
+jobs:
+  index:
+    uses: johnewart/pytest-select/.github/workflows/reusable-pytest-select-index.yml@main
+    with:
+      python-version: "3.12"
+      base-ref: ${{ github.event.pull_request.base.sha || '' }}
+      install-command: >-
+        pip install pytest
+        "pytest-select @ git+https://github.com/johnewart/pytest-select.git@main"
+    secrets: inherit
+
+  test-pr:
+    needs: index
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: >-
+          pip install pytest
+          "pytest-select @ git+https://github.com/johnewart/pytest-select.git@main"
+      - uses: actions/cache/restore@v4
+        with:
+          path: .pytest-select
+          key: pytest-select-index-${{ github.sha }}
+      - run: |
+          pytest \
+            --select-from-diff="${{ github.event.pull_request.base.sha }}...${{ github.sha }}" \
+            --index-db=.pytest-select/index.sqlite
+```
+
+If you vendor a copy of pytest-select inside your repo (e.g. `vendor/pytest-select/`), point `install-command` at that path instead:
+
+```yaml
+install-command: pip install pytest ./vendor/pytest-select
+```
+
+See also:
+
+- Reusable workflow: [`.github/workflows/reusable-pytest-select-index.yml`](.github/workflows/reusable-pytest-select-index.yml)
+- Full example pipeline: [`.github/workflows/example-pytest-select-ci.yml`](.github/workflows/example-pytest-select-ci.yml)
+- Cache and ancestry resolver: [`docs/github-actions-cache.md`](docs/github-actions-cache.md)
+
+## Quick start
+
+If you cloned this repo for development, install in editable mode:
+
+```bash
+pip install -e ".[dev]"
+```
+
+If you are consuming pytest-select in another project, see [Installation](#installation) for GitHub / `pyproject.toml` setup.
+
+```bash
 # Build / refresh the dependency index (cache in CI)
 pytest --reindex --index-db=.pytest-select/index.sqlite
 
@@ -16,6 +134,25 @@ pytest --select-from-diff=origin/main...HEAD --index-db=.pytest-select/index.sql
 # Optional JSON report for CI annotations
 pytest --select-from-diff=origin/main...HEAD --select-report=selected.json
 ```
+
+## Development
+
+Install dev dependencies (includes pytest, ruff, and pyrefly):
+
+```bash
+pip install -e ".[dev]"
+```
+
+Run the test suite, linter, formatter, and type checker:
+
+```bash
+pytest
+ruff check src tests
+ruff format src tests
+pyrefly check
+```
+
+CI runs these checks on every pull request via [`.github/workflows/lint.yml`](.github/workflows/lint.yml).
 
 ## Architecture
 
@@ -39,7 +176,7 @@ pytest --select-from-diff=origin/main...HEAD --select-report=selected.json
 
 ### GitHub Actions (commit-keyed cache)
 
-Use the **reusable workflow** and ancestry resolver so PRs restore the nearest parent index and only incrementally reindex:
+Install from GitHub (see [Installation](#installation)), then use the **reusable workflow** and ancestry resolver so PRs restore the nearest parent index and only incrementally reindex:
 
 - Workflow: [`.github/workflows/reusable-pytest-select-index.yml`](.github/workflows/reusable-pytest-select-index.yml)
 - Example pipeline: [`.github/workflows/example-pytest-select-ci.yml`](.github/workflows/example-pytest-select-ci.yml)

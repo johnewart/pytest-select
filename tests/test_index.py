@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
-
+from conftest import FIXTURE
 from pytest_select.db.queries import IndexDatabase
 from pytest_select.index.builder import build_index_with_session, index_source_files
 from pytest_select.index.resolver import ImportResolver
-
-from conftest import FIXTURE
 
 
 def test_index_source_files_creates_import_edges(tmp_path):

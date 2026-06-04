@@ -1,9 +1,13 @@
 # Reusable workflow: restore nearest ancestor index cache, incremental reindex, save cache.
 #
-# Consumer example:
+# Consumer example (install from GitHub until PyPI publish — see README.md#installation):
 #   jobs:
 #     index:
-#       uses: your-org/your-repo/.github/workflows/reusable-pytest-select-index.yml@main
+#       uses: johnewart/pytest-select/.github/workflows/reusable-pytest-select-index.yml@main
+#       with:
+#         install-command: >-
+#           pip install pytest
+#           "pytest-select @ git+https://github.com/johnewart/pytest-select.git@main"
 #       secrets: inherit
 #     test:
 #       needs: index

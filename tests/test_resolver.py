@@ -1,10 +1,7 @@
 """Import resolver tests."""
 
-from pathlib import Path
-
-from pytest_select.index.resolver import ImportResolver
-
 from conftest import FIXTURE
+from pytest_select.index.resolver import ImportResolver
 
 
 def test_resolve_module_app_util():

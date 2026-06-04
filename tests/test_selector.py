@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
-import pytest as pt
-
+from conftest import FIXTURE
 from pytest_select.db.queries import IndexDatabase
 from pytest_select.index.builder import build_index_with_session
 from pytest_select.select.selector import select_tests
-
-from conftest import FIXTURE
 
 
 def _git_init_commit(repo: Path) -> None:
@@ -21,12 +19,16 @@ def _git_init_commit(repo: Path) -> None:
         cwd=repo,
         check=True,
         capture_output=True,
-        env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t.com"},
+        env={
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@t.com",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@t.com",
+        },
     )
 
 
 def _build_index(db_path, root=FIXTURE):
-    import os
     import sys
 
     sys.path.insert(0, str(root))
@@ -53,13 +55,20 @@ def test_select_tests_util_change(tmp_path):
         'def greet(name: str) -> str:\n    return f"hi {name}"\n',
         encoding="utf-8",
     )
-    subprocess.run(["git", "add", "app/util.py"], cwd=work, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "app/util.py"], cwd=work, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "commit", "-m", "change util", "--author", "test <test@test.com>"],
         cwd=work,
         check=True,
         capture_output=True,
-        env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t.com"},
+        env={
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@t.com",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@t.com",
+        },
     )
     _build_index(tmp_path / "index2.sqlite", work)
 

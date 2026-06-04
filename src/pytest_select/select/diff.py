@@ -12,7 +12,9 @@ from pathlib import Path
 @dataclass
 class DiffResult:
     changed_files: set[str] = field(default_factory=set)
-    changed_symbols: set[tuple[str, str]] = field(default_factory=set)  # (file, qualname)
+    changed_symbols: set[tuple[str, str]] = field(
+        default_factory=set
+    )  # (file, qualname)
     wide_blast_radius: bool = False  # conftest / __init__ under tests
 
 
@@ -46,9 +48,10 @@ def parse_git_diff(diff_ref: str, root: Path) -> DiffResult:
             continue
         posix = Path(name).as_posix()
         out.changed_files.add(posix)
-        if "conftest.py" in posix or posix.endswith("__init__.py"):
-            if posix.startswith("tests/") or "/tests/" in posix:
-                out.wide_blast_radius = True
+        if ("conftest.py" in posix or posix.endswith("__init__.py")) and (
+            posix.startswith("tests/") or "/tests/" in posix
+        ):
+            out.wide_blast_radius = True
 
     # Line-level hunks for symbol mapping
     patch = _run_git(["diff", "-U0", diff_ref], root)

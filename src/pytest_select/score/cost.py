@@ -44,9 +44,7 @@ def _is_mocked_call(node: ast.Call) -> bool:
     func = node.func
     if isinstance(func, ast.Name) and func.id in MOCK_NAMES:
         return True
-    if isinstance(func, ast.Attribute) and func.attr in MOCK_NAMES:
-        return True
-    return False
+    return bool(isinstance(func, ast.Attribute) and func.attr in MOCK_NAMES)
 
 
 def score_file_cost(tree: ast.AST) -> float:
@@ -69,7 +67,6 @@ def score_file_cost(tree: ast.AST) -> float:
             if isinstance(func, ast.Attribute):
                 if func.attr in ("sleep", "Popen", "run", "execute"):
                     cost += 8.0
-            elif isinstance(func, ast.Name):
-                if func.id in ("sleep", "open", "system"):
-                    cost += 5.0
+            elif isinstance(func, ast.Name) and func.id in ("sleep", "open", "system"):
+                cost += 5.0
     return cost

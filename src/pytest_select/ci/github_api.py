@@ -8,7 +8,6 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Iterator
 
 _CACHE_KEY_RE = re.compile(r"^pytest-select-index-([0-9a-f]{40})$")
 

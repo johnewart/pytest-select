@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-from pytest_select.ci.manifest import CacheManifest, MANIFEST_VERSION
+from pytest_select.ci.manifest import CacheManifest
 from pytest_select.ci.resolve import find_nearest_cached_ancestor
 
 

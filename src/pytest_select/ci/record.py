@@ -11,7 +11,9 @@ from pytest_select.ci.manifest import CacheManifest
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Record a commit in the pytest-select cache manifest")
+    parser = argparse.ArgumentParser(
+        description="Record a commit in the pytest-select cache manifest"
+    )
     parser.add_argument("--sha", default="HEAD", help="Commit SHA or HEAD")
     parser.add_argument(
         "--manifest",

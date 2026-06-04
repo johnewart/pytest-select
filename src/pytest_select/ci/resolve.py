@@ -204,7 +204,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{k}={v}")
     else:
         if result.hit:
-            print(f"cache_hit=true cache_sha={result.cache_sha} cache_key={result.cache_key}")
+            print(
+                f"cache_hit=true cache_sha={result.cache_sha} cache_key={result.cache_key}"
+            )
         else:
             print("cache_hit=false")
     return 0
