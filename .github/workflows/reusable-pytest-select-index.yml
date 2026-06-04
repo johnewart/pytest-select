@@ -1,0 +1,148 @@
+# Reusable workflow: restore nearest ancestor index cache, incremental reindex, save cache.
+#
+# Consumer example:
+#   jobs:
+#     index:
+#       uses: your-org/your-repo/.github/workflows/reusable-pytest-select-index.yml@main
+#       secrets: inherit
+#     test:
+#       needs: index
+#       ...
+#
+# Cache keys (commit-scoped):
+#   - pytest-select-index-<full-sha>  → .pytest-select/ (index.sqlite)
+#   - pytest-select-manifest-<full-sha> → .pytest-select/cache-manifest.json
+#
+# Requires checkout with fetch-depth: 0 so ancestry resolution works on PRs.
+
+name: Reusable — pytest-select index
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python version for setup-python
+        type: string
+        default: "3.12"
+      index-db:
+        description: Path to SQLite index inside .pytest-select/
+        type: string
+        default: ".pytest-select/index.sqlite"
+      manifest-path:
+        description: >
+          Cache manifest JSON path (kept outside .pytest-select/ so index restore does not clobber it).
+        type: string
+        default: "cache-metadata/pytest-select-manifest.json"
+      base-ref:
+        description: >
+          Optional git ref to limit ancestry search (e.g. github.event.pull_request.base.sha).
+          Leave empty to search full history reachable from HEAD.
+        type: string
+        default: ""
+      install-command:
+        description: Shell command to install pytest-select (and pytest) in the runner
+        type: string
+        default: "pip install pytest pytest-select"
+      reindex-args:
+        description: Extra args passed to pytest --reindex
+        type: string
+        default: "-q"
+      use-github-api-fallback:
+        description: Query GitHub Actions caches API if manifest has no entries
+        type: boolean
+        default: true
+    outputs:
+      cache-hit:
+        description: Whether an ancestor cache was found
+        value: ${{ jobs.index.outputs.cache-hit }}
+      cache-sha:
+        description: Commit SHA of the restored index cache (empty if miss)
+        value: ${{ jobs.index.outputs.cache-sha }}
+      head-sha:
+        description: Full SHA of the commit that was indexed
+        value: ${{ jobs.index.outputs.head-sha }}
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    outputs:
+      cache-hit: ${{ steps.resolve.outputs.cache_hit }}
+      cache-sha: ${{ steps.resolve.outputs.cache_sha }}
+      head-sha: ${{ steps.resolve.outputs.head_sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install pytest-select
+        run: ${{ inputs.install-command }}
+
+      - name: Restore cache manifest
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ inputs.manifest-path }}
+          key: pytest-select-manifest-${{ github.sha }}
+          restore-keys: |
+            pytest-select-manifest-
+
+      - name: Resolve nearest ancestor index
+        id: resolve
+        env:
+          BASE_REF: ${{ inputs.base-ref }}
+        run: |
+          set -euo pipefail
+          ARGS=(
+            --head "${GITHUB_SHA}"
+            --manifest "${{ inputs.manifest-path }}"
+            --github-output "$GITHUB_OUTPUT"
+            --format github
+          )
+          if [ -n "${BASE_REF}" ]; then
+            ARGS+=(--base "${BASE_REF}")
+          fi
+          if [ "${{ inputs.use-github-api-fallback }}" = "true" ]; then
+            ARGS+=(--github-api)
+          fi
+          pytest-select-cache-resolve "${ARGS[@]}"
+
+      - name: Restore index from ancestor
+        if: steps.resolve.outputs.cache_hit == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: .pytest-select
+          key: ${{ steps.resolve.outputs.cache_key }}
+
+      - name: Incremental reindex
+        run: |
+          pytest --reindex \
+            --index-db="${{ inputs.index-db }}" \
+            ${{ inputs.reindex-args }}
+
+      - name: Record manifest entry
+        run: |
+          pytest-select-cache-record \
+            --sha "${GITHUB_SHA}" \
+            --manifest "${{ inputs.manifest-path }}" \
+            --index-db "${{ inputs.index-db }}"
+
+      - name: Save index cache
+        uses: actions/cache/save@v4
+        with:
+          path: .pytest-select
+          key: pytest-select-index-${{ github.sha }}
+
+      - name: Save manifest cache
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ inputs.manifest-path }}
+          key: pytest-select-manifest-${{ github.sha }}

@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pytest-select"
+version = "0.1.0"
+description = "AST-indexed, diff-based pytest test selection for CI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "pytest-select contributors" }]
+dependencies = []
+keywords = ["pytest", "ci", "test-selection", "diff"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: Pytest",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+
+[project.entry-points.pytest11]
+select = "pytest_select.plugin"
+
+[project.scripts]
+pytest-select-index = "pytest_select.cli:index_main"
+pytest-select-cache-resolve = "pytest_select.ci.resolve:main"
+pytest-select-cache-record = "pytest_select.ci.record:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pytest_select"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/pytest_select", "tests", "README.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["fixtures", ".git", ".pytest-select"]
+addopts = "-q"
+
+[tool.hatch.build]
+sources = ["src"]

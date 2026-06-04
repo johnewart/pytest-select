@@ -1,0 +1,97 @@
+# Example: PR selective tests + merge-queue full suite.
+#
+# Copy/adapt for your repository. Adjust install-command if pytest-select is not on PyPI yet:
+#   pip install pytest ./vendor/pytest-select
+#
+# This example calls the reusable index workflow from the same repository.
+
+name: Example CI (pytest-select)
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  merge_group:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Build or refresh index; cache keyed by commit SHA + manifest for ancestry lookup.
+  index:
+    if: github.event_name != 'merge_group'
+    uses: ./.github/workflows/reusable-pytest-select-index.yml
+    with:
+      python-version: "3.12"
+      base-ref: ${{ github.event.pull_request.base.sha || '' }}
+      install-command: pip install pytest pytest-select
+    secrets: inherit
+
+  # PR: run only tests selected from diff (fast pre-merge gate).
+  test-pr:
+    if: github.event_name == 'pull_request'
+    needs: index
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install pytest pytest-select
+
+      - name: Restore index cache for this commit
+        uses: actions/cache/restore@v4
+        with:
+          path: .pytest-select
+          key: pytest-select-index-${{ github.sha }}
+
+      - name: Run selected tests
+        run: |
+          pytest \
+            --select-from-diff="${{ github.event.pull_request.base.sha }}...${{ github.sha }}" \
+            --index-db=.pytest-select/index.sqlite \
+            --select-fallback-percentile=10 \
+            --select-report=selected-tests.json
+
+      - name: Upload selection report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-select-report
+          path: selected-tests.json
+
+  # Main: after index job, run selected tests (optional) or smoke — here we only index on push.
+  test-main:
+    if: github.event_name == 'push'
+    needs: index
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest pytest-select
+      - uses: actions/cache/restore@v4
+        with:
+          path: .pytest-select
+          key: pytest-select-index-${{ github.sha }}
+      - run: pytest --index-db=.pytest-select/index.sqlite -q
+
+  # Merge queue: full suite (no selection).
+  test-merge-queue:
+    if: github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest pytest-select
+      - run: pytest -q
