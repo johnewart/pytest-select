@@ -73,7 +73,17 @@ def pytest_collection_modifyitems(
     if config.getoption("--reindex"):
         root = Path(config.rootpath)
         db_path = config.getoption("--index-db")
-        build_index_with_session(root, db_path, items)
+        db, stats = build_index_with_session(root, db_path, items)
+        db.close()
+        tr = config.pluginmanager.get_plugin("terminalreporter")
+        message = stats.format_message()
+        if tr is not None:
+            if stats.mapped == 0 and stats.collected > 0:
+                tr.write_line(message, red=True, bold=True)
+            else:
+                tr.write_line(message)
+        if stats.mapped == 0 and stats.collected > 0:
+            pytest.exit(message, returncode=1)
         items.clear()
         return
 

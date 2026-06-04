@@ -34,8 +34,11 @@ def index_main(argv: list[str] | None = None) -> int:
 
     from pytest_select.index.builder import build_index_with_session
 
-    build_index_with_session(root, db_path, session.items)
-    print(f"Indexed {len(session.items)} tests -> {db_path}")
+    db, stats = build_index_with_session(root, db_path, session.items)
+    db.close()
+    print(stats.format_message())
+    if stats.mapped == 0 and stats.collected > 0:
+        return 1
     return 0
 
 

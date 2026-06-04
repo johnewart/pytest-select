@@ -5,9 +5,35 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 _SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+
+
+@dataclass
+class IndexBuildStats:
+    collected: int = 0
+    mapped: int = 0
+    unmapped_samples: list[str] = field(default_factory=list)
+
+    def format_message(self) -> str:
+        if self.collected == 0:
+            return "pytest-select: indexed 0 tests (pytest collection returned no items)"
+        if self.mapped == 0:
+            samples = ", ".join(self.unmapped_samples[:3])
+            suffix = f" e.g. {samples}" if samples else ""
+            return (
+                "pytest-select: indexed 0 tests "
+                f"({self.collected} collected but none mapped to project paths{suffix}). "
+                "Check that --root / pytest rootdir matches your test tree."
+            )
+        if self.mapped < self.collected:
+            return (
+                f"pytest-select: indexed {self.mapped}/{self.collected} tests "
+                f"({self.collected - self.mapped} unmapped)"
+            )
+        return f"pytest-select: indexed {self.mapped} tests"
 
 
 class IndexDatabase:
@@ -57,6 +83,10 @@ class IndexDatabase:
             "SELECT sha256 FROM files WHERE path = ?", (path,)
         ).fetchone()
         return row["sha256"] if row else None
+
+    def list_file_paths(self) -> set[str]:
+        rows = self._conn.execute("SELECT path FROM files").fetchall()
+        return {r["path"] for r in rows}
 
     def insert_dep(
         self,
