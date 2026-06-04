@@ -136,6 +136,9 @@ pytest --select-from-diff=origin/main...HEAD --select-report=selected.json
 
 # Preview which tests would run (stdout: one nodeid per line)
 pytest --select-from-diff=origin/main...HEAD --select-print
+
+# Same, with reasoning chains (changed files, reverse-import expansion, per-test why)
+pytest --select-from-diff=origin/main...HEAD --select-print --select-print-detailed
 ```
 
 ## Development
@@ -171,6 +174,7 @@ CI runs these checks on every pull request via [`.github/workflows/lint.yml`](.g
 | `--index-db PATH` | Index database path (default: `.pytest-select/index.sqlite`) |
 | `--select-from-diff REF` | Git revision range (e.g. `origin/main...HEAD`) |
 | `--select-print` | Print selected test nodeids (one per line) and exit |
+| `--select-print-detailed` | With `--select-print`, show changed→affected→test chains |
 | `--select-report PATH` | Write JSON report of selection |
 | `--select-safety-margin N` | Reverse-dep expansion depth (default: 2) |
 | `--select-fallback-percentile P` | Include top P% impact tests as safety net (default: 0) |

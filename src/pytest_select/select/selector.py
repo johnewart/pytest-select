@@ -8,6 +8,7 @@ from typing import Any
 
 from pytest_select.db.queries import IndexDatabase
 from pytest_select.select.diff import expand_affected_files, parse_git_diff
+from pytest_select.select.explain import build_selection_details
 
 
 def _greedy_set_cover(
@@ -90,6 +91,7 @@ def select_tests(
     safety_margin: int = 2,
     fallback_percentile: float = 0.0,
     fallback_full_on_wide: bool = True,
+    detailed: bool = False,
 ) -> tuple[set[str], dict[str, Any]]:
     """
     Return (selected nodeids, report dict).
@@ -105,6 +107,7 @@ def select_tests(
         "changed_files": sorted(diff.changed_files),
         "changed_symbols": [list(x) for x in sorted(diff.changed_symbols)],
         "wide_blast_radius": diff.wide_blast_radius,
+        "safety_margin": safety_margin,
     }
 
     all_nodeids = set(db.all_test_nodeids())
@@ -112,13 +115,36 @@ def select_tests(
         db.close()
         return set(), {**report, "error": "no tests in index; run --reindex first"}
 
+    expansion_chains = db.explain_affected_chains(
+        diff.changed_files, max_depth=safety_margin
+    )
+
     if diff.wide_blast_radius and fallback_full_on_wide:
         report["strategy"] = "full_suite_wide_blast"
+        report["affected_files"] = sorted(expansion_chains.keys())
+        report["expansion_chains"] = expansion_chains
+        report["selected_count"] = len(all_nodeids)
+        report["selected"] = sorted(all_nodeids)
+        if detailed:
+            report["selection_details"] = build_selection_details(
+                all_nodeids,
+                changed_files=diff.changed_files,
+                affected_files=set(expansion_chains.keys()),
+                expansion_chains=expansion_chains,
+                coverage_map=db.test_coverage_map(all_nodeids),
+                fallback_tests=set(),
+                select_always_tests=set(),
+            )
         db.close()
         return all_nodeids, report
 
     affected = expand_affected_files(diff, db, safety_margin=safety_margin)
     report["affected_files"] = sorted(affected)
+    report["expansion_chains"] = {
+        path: expansion_chains[path]
+        for path in affected
+        if path in expansion_chains
+    }
 
     candidates = db.tests_touching_files(affected)
     if not candidates and affected:
@@ -135,6 +161,18 @@ def select_tests(
                         candidates.add(nid)
         if not candidates:
             report["strategy"] = "full_suite_no_candidates"
+            report["selected_count"] = len(all_nodeids)
+            report["selected"] = sorted(all_nodeids)
+            if detailed:
+                report["selection_details"] = build_selection_details(
+                    all_nodeids,
+                    changed_files=diff.changed_files,
+                    affected_files=affected,
+                    expansion_chains=report["expansion_chains"],
+                    coverage_map=db.test_coverage_map(all_nodeids),
+                    fallback_tests=set(),
+                    select_always_tests=set(),
+                )
             db.close()
             return all_nodeids, report
 
@@ -142,14 +180,15 @@ def select_tests(
     scores = db.test_scores(candidates)
     selected = _greedy_set_cover(affected, candidates, coverage_map, scores)
 
+    fallback_tests: set[str] = set()
     if fallback_percentile > 0:
         all_scores = db.test_scores()
-        selected |= _fallback_high_impact(all_scores, selected, fallback_percentile)
+        fallback_tests = _fallback_high_impact(all_scores, selected, fallback_percentile)
+        selected |= fallback_tests
 
-    # Always include tests whose file directly changed
     for f in diff.changed_files:
         for nid in all_nodeids:
-            test_file = nid.split("::")[0]
+            test_file = nid.split("::")[0].replace("\\", "/")
             if test_file == f or test_file.endswith("/" + f):
                 selected.add(nid)
 
@@ -157,6 +196,18 @@ def select_tests(
     report["candidates_count"] = len(candidates)
     report["selected_count"] = len(selected)
     report["selected"] = sorted(selected)
+
+    if detailed:
+        full_coverage = db.test_coverage_map(selected)
+        report["selection_details"] = build_selection_details(
+            selected,
+            changed_files=diff.changed_files,
+            affected_files=affected,
+            expansion_chains=report["expansion_chains"],
+            coverage_map=full_coverage,
+            fallback_tests=fallback_tests,
+            select_always_tests=set(),
+        )
 
     db.close()
     return selected, report

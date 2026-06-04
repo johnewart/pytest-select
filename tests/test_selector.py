@@ -84,6 +84,9 @@ def test_reverse_importers(tmp_path):
     db = IndexDatabase(db_path)
     rev = db.reverse_importers({"app/util.py"}, max_depth=2)
     assert "app/service.py" in rev
+    chains = db.explain_affected_chains({"app/util.py"}, max_depth=2)
+    assert chains["app/util.py"] == ["app/util.py"]
+    assert chains["app/service.py"] == ["app/util.py", "app/service.py"]
     db.close()
 
 
@@ -135,3 +138,56 @@ def test_select_print_lists_nodeids(tmp_path):
     lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
     assert lines
     assert any("test_util" in ln or "test_service" in ln for ln in lines)
+
+
+def test_select_print_detailed_shows_chain(tmp_path):
+    import shutil
+    import sys
+
+    work = tmp_path / "work"
+    shutil.copytree(FIXTURE, work)
+    _git_init_commit(work)
+    util = work / "app" / "util.py"
+    util.write_text(
+        'def greet(name: str) -> str:\n    return f"hi {name}"\n',
+        encoding="utf-8",
+    )
+    subprocess.run(
+        ["git", "add", "app/util.py"], cwd=work, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "change util", "--author", "test <test@test.com>"],
+        cwd=work,
+        check=True,
+        capture_output=True,
+        env={
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@t.com",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@t.com",
+        },
+    )
+    db_path = tmp_path / "index.sqlite"
+    _build_index(db_path, work)
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--select-from-diff=HEAD~1...HEAD",
+            f"--index-db={db_path}",
+            "--select-print",
+            "--select-print-detailed",
+            "-q",
+        ],
+        cwd=work,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = proc.stdout
+    assert "Git changed" in out
+    assert "app/util.py" in out
+    assert "Affected files" in out
+    assert "strategy=" in out

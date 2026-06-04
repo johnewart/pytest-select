@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 
 from pytest_select.index.builder import build_index_with_session
-from pytest_select.select.selector import select_tests, write_select_report
+from pytest_select.select.explain import format_selection_details
+from pytest_select.select.selector import (
+    select_tests,
+    write_select_report,
+)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -45,6 +49,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Print selected test nodeids (one per line) and exit without running tests",
     )
     group.addoption(
+        "--select-print-detailed",
+        action="store_true",
+        default=False,
+        help="With --select-print, show changed→affected→test reasoning chains",
+    )
+    group.addoption(
         "--select-safety-margin",
         action="store",
         type=int,
@@ -71,8 +81,17 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "select_always: always include this test in diff-based selection",
     )
-    if config.getoption("--select-print") and not config.getoption("--select-from-diff"):
-        pytest.exit("--select-print requires --select-from-diff", returncode=2)
+    if config.getoption("--select-print-detailed") and not config.getoption(
+        "--select-from-diff"
+    ):
+        pytest.exit("--select-print-detailed requires --select-from-diff", returncode=2)
+    if config.getoption("--select-print-detailed") and not config.getoption(
+        "--select-print"
+    ):
+        pytest.exit(
+            "--select-print-detailed requires --select-print",
+            returncode=2,
+        )
 
 
 def pytest_collection_modifyitems(
@@ -101,6 +120,7 @@ def pytest_collection_modifyitems(
 
     root = Path(config.rootpath)
     db_path = config.getoption("--index-db")
+    detailed = config.getoption("--select-print-detailed")
     selected, report = select_tests(
         diff_ref,
         db_path,
@@ -108,6 +128,7 @@ def pytest_collection_modifyitems(
         safety_margin=config.getoption("--select-safety-margin"),
         fallback_percentile=config.getoption("--select-fallback-percentile"),
         fallback_full_on_wide=not config.getoption("--no-select-fallback-full-on-wide"),
+        detailed=detailed,
     )
 
     if report.get("error"):
@@ -124,10 +145,24 @@ def pytest_collection_modifyitems(
 
     selected |= always
 
+    if detailed and report.get("selection_details") is not None:
+        for nid in always:
+            entry = report["selection_details"].setdefault(
+                nid,
+                {"reasons": [], "affected_hits": [], "hit_chains": {}},
+            )
+            if "marked select_always" not in entry["reasons"]:
+                entry["reasons"].insert(0, "marked select_always")
+        report["selected_count"] = len(selected)
+        report["selected"] = sorted(selected)
+
     if config.getoption("--select-print"):
         config._pytest_select_print_mode = True  # noqa: SLF001
-        for nodeid in sorted(selected):
-            print(nodeid)
+        if detailed:
+            print(format_selection_details(report), end="")
+        else:
+            for nodeid in sorted(selected):
+                print(nodeid)
         tr = config.pluginmanager.get_plugin("terminalreporter")
         if tr is not None:
             tr.write_line(

@@ -224,5 +224,36 @@ class IndexDatabase:
             frontier = next_frontier
         return seen
 
+    def explain_affected_chains(
+        self, changed_files: Iterable[str], max_depth: int = 2
+    ) -> dict[str, list[str]]:
+        """Shortest reverse-import chain from a git-changed file to each affected file."""
+        chains: dict[str, list[str]] = {}
+        frontier = set(changed_files)
+        for seed in changed_files:
+            chains[seed] = [seed]
+        for _ in range(max_depth):
+            if not frontier:
+                break
+            placeholders = ",".join("?" * len(frontier))
+            rows = self._conn.execute(
+                f"SELECT DISTINCT source_file, target_file FROM deps "
+                f"WHERE target_file IN ({placeholders}) AND edge_kind = 'import'",
+                list(frontier),
+            ).fetchall()
+            next_frontier: set[str] = set()
+            for r in rows:
+                src = r["source_file"]
+                tgt = r["target_file"]
+                if src in chains:
+                    continue
+                parent = chains.get(tgt)
+                if parent is None:
+                    continue
+                chains[src] = [*parent, src]
+                next_frontier.add(src)
+            frontier = next_frontier
+        return chains
+
     def commit(self) -> None:
         self._conn.commit()
